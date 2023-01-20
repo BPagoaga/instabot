@@ -1,8 +1,9 @@
 import { readFile } from 'fs/promises';
 import { getIgResponse } from "./http.js";
-require('dotenv').config();   
+import 'dotenv/config';
 
 const { userId, sessionId, followersQueryHash, followingQueryHash } = process.env;
+
 const toUnfollow = [];
 const following = [];
 const followers = [];
@@ -33,15 +34,16 @@ const main = async () => {
       const data = (await getIgResponse(
          userId,
          sessionId, 
-         followersQueryHash,
-         nextPage
-      )).data;
+         nextPage,
+         "follow_list_page",
+         "followers"
+      ));
 
-      nextPage = data.user?.edge_followed_by?.page_info?.end_cursor;
+      nextPage = data.next_max_id;
       hasNextPage = !!nextPage;
       
-      followers.push(...data.user?.edge_followed_by?.edges.filter((edge) => !!edge)
-      .map((edge) => edge?.node?.username)
+      followers.push(...data.users
+      .map((user) => user.username)
       .filter((username) => !!username));
       
    } while (hasNextPage);
@@ -52,15 +54,16 @@ const main = async () => {
       const data = (await getIgResponse(
          userId,
          sessionId, 
-         followingQueryHash,
-         nextPage
-      )).data;
+         nextPage,
+         "follow_list_page",
+         "following"
+      ));
       
-      nextPage = data.user?.edge_follow?.page_info?.end_cursor;
+      nextPage = data.next_max_id;
       hasNextPage = !!nextPage;
       
-      following.push(...data.user?.edge_follow?.edges.filter((edge) => !!edge)
-      .map((edge) => edge?.node?.username)
+      following.push(...data.users
+      .map((user) => user.username)
       .filter((username) => !!username));
       
    } while (hasNextPage);

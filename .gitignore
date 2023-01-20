@@ -1,5 +1,5 @@
 .env
-.exclude.json
+exclude.json
 followers
 following
 node_modules
