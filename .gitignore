@@ -3,3 +3,4 @@ exclude.json
 followers
 following
 node_modules
+ig-session.json

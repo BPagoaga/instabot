@@ -1,13 +1,39 @@
 import { readFile } from "fs/promises";
-import { getIgResponse } from "./http.js";
+import { IgCheckpointError } from "instagram-private-api";
+import { login, solveCheckpoint } from "./instagram-client.js";
+
+// Retry an API call once after solving a checkpoint challenge
+function isCheckpoint(error) {
+  return error instanceof IgCheckpointError
+    || error?.message?.includes('checkpoint_required')
+    || error?.message?.includes('challenge_required');
+}
+
+function isUnsupportedVersion(error) {
+  return error?.response?.body?.checkpoint_url?.includes('unsupported_version');
+}
+
+async function withCheckpoint(fn) {
+  try {
+    return await fn();
+  } catch (error) {
+    if (isCheckpoint(error)) {
+      if (isUnsupportedVersion(error)) {
+        throw new Error('Instagram has blocked this session as unsupported. Delete ig-session.json and log in again.');
+      }
+      await solveCheckpoint(error);
+      return await fn();
+    }
+    throw error;
+  }
+}
 
 const toUnfollow = [];
 const following = [];
 const followers = [];
 const exclude = [];
 
-const getExclude = async (file) => {
-  // iterate over files in following folder
+const getExclude = async () => {
   exclude.push(...JSON.parse(await readFile("./exclude.json", "utf-8")));
 };
 
@@ -24,39 +50,39 @@ const compare = () => {
 const main = async () => {
   await getExclude();
 
-  let hasNextPage = false;
-  let nextPage = "";
+  // Initialize Instagram client with login
+  const ig = await login();
+  
+  // Get the logged-in user's ID
+  const userId = ig.state.cookieUserId;
+
+  console.log('Fetching followers...');
+
+  // Fetch all followers using instagram-private-api
+  const followersFeed = ig.feed.accountFollowers(userId);
 
   do {
-    const data = await getIgResponse(nextPage, "follow_list_page", "followers");
-
-    nextPage = data.next_max_id;
-    hasNextPage = !!nextPage;
-
-    followers.push(
-      ...data.users
-        .map((user) => user.username)
-        .filter((username) => !!username),
-    );
-  } while (hasNextPage);
+    const followersChunk = await withCheckpoint(() => followersFeed.items());
+    followers.push(...followersChunk.map(user => user.username));
+  } while (followersFeed.isMoreAvailable());
 
   console.info(`You have ${followers.length} followers`);
 
+  // Fetch all following
+  console.log('Fetching following...');
+
+  const followingFeed = ig.feed.accountFollowing(userId);
+
   do {
-    const data = await getIgResponse(nextPage, "follow_list_page", "following");
-
-    nextPage = data.next_max_id;
-    hasNextPage = !!nextPage;
-
-    following.push(
-      ...data.users
-        .map((user) => user.username)
-        .filter((username) => !!username),
-    );
-  } while (hasNextPage);
+    const followingChunk = await withCheckpoint(() => followingFeed.items());
+    following.push(...followingChunk.map(user => user.username));
+  } while (followingFeed.isMoreAvailable());
 
   console.info(`You are following ${following.length} people`);
   compare();
 };
 
-main();
+main().catch(err => {
+  console.error('Error:', err.message);
+  process.exit(1);
+});
